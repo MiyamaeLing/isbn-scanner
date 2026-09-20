@@ -48,13 +48,15 @@ function cleanAuthor(a){
     .map(p=>p.replace(/[,，]?\s*\d{4}-?\d{0,4}\s*$/,"").split(/[,，]/).map(x=>x.trim()).filter(Boolean).join(""))
     .filter(Boolean).slice(0,3).join("・");
 }
+const nfkc = v => typeof v==="string" ? v.normalize("NFKC") : v;
+function cleanSeries(s){ return String(s||"").replace(/\s*(?:VOL|Vol|vol)\.?\s*$/,"").replace(/[\s.．、,]+$/,"").trim() }
 function splitVolume(title){
-  let t = String(title||"").replace(/\s+/g," ").trim();
+  let t = nfkc(String(title||"")).replace(/\s+/g," ").trim();
   t = t.replace(/\.\s*\[(\d+)\]/, " $1");
   t = t.replace(/[\s　]*[（(]\s*[^\d)）]{2,}\s*[)）]\s*$/, "");
   t = t.trim();
   const m = t.match(/^(.+?)[\s　]*[（(【\[]?(\d{1,3})[)）】\]]?[\s　]*(?:巻)?$/);
-  if(m && m[1].trim().length>=2 && !/^\d+$/.test(m[1].trim())) return {series:m[1].trim().replace(/[\s　]*[（(【\[]$/,"").trim(), vol:Number(m[2])};
+  if(m && m[1].trim().length>=2 && !/^\d+$/.test(m[1].trim())) return {series:cleanSeries(m[1].trim().replace(/[\s　]*[（(【\[]$/,"")), vol:Number(m[2])};
   return {series:"", vol:null};
 }
 async function fetchJson(url, ms){
@@ -74,6 +76,7 @@ async function lookup(isbn){
     if(v && v.title) meta = {title:[v.title, v.subtitle].filter(Boolean).join(" "), author:(v.authors||[]).slice(0,3).join("・"), publisher:v.publisher||"", label:"", genre:(v.categories||[]).slice(0,2).join("/")};
   }
   if(!meta) return null;
+  for(const k of ["title","author","publisher","label","genre"]) meta[k] = nfkc(meta[k]||"").trim();
   const sv = splitVolume(meta.title);
   return {...meta, series:sv.series, vol:sv.vol};
 }
@@ -306,7 +309,7 @@ $("#editForm").addEventListener("submit", async e=>{
   const volRaw = f.vol.value.trim();
   const data = {
     ...(editing?stripId(editing):{}),
-    kind:editKind, title, author:f.author.value.trim(), series:f.series.value.trim(),
+    kind:editKind, title, author:f.author.value.trim(), series:cleanSeries(f.series.value),
     vol: volRaw===""?null:Number(volRaw), isbn: isbn||"", location:f.location.value.trim(),
     status:editStatus, readAt: editStatus==="read" ? (f.readAt.value||today()) : f.readAt.value,
     tags: f.tags.value.split(/[\s　,、]+/).map(s=>s.replace(/^#/,"")).filter(Boolean),
