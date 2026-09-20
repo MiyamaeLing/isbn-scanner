@@ -30,7 +30,6 @@ button{font:inherit;color:inherit;cursor:pointer}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:8px}
 .btn{border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:11px 16px;font-weight:500}
 .btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:700}
-.btn.wide{width:100%;text-align:center}
 .btn:disabled{opacity:.5}
 .row{display:flex;gap:8px;flex-wrap:wrap}
 .row>*{flex:1 1 140px}
@@ -41,16 +40,21 @@ button{font:inherit;color:inherit;cursor:pointer}
 .hint{position:absolute;left:0;right:0;bottom:8px;text-align:center;color:#fff;font-size:12.5px;text-shadow:0 1px 3px #000}
 .msg{font-size:13.5px;color:var(--muted);min-height:2.6em}
 .msg.bad{color:var(--bad)}
-.count{display:flex;align-items:baseline;gap:8px}
+.count{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
 .count b{font-family:var(--mono);font-size:30px;font-weight:500}
 .count span{color:var(--muted);font-size:13px}
-ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px;max-height:46vh;overflow:auto}
-li{display:flex;align-items:center;gap:10px;background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:8px 10px}
-li .n{font-family:var(--mono);font-size:12px;color:var(--muted);min-width:1.8em}
-li .code{font-family:var(--mono);font-size:14.5px;letter-spacing:.02em;flex:1}
+ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px;max-height:50vh;overflow:auto}
+li{display:flex;align-items:flex-start;gap:10px;background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:8px 10px}
+li .n{font-family:var(--mono);font-size:12px;color:var(--muted);min-width:1.8em;padding-top:2px}
+li .bd{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+li .t{font-weight:700;font-size:14.5px;line-height:1.4;overflow-wrap:anywhere}
+li .t.wait{font-weight:400;color:var(--muted)}
+li .t.none{font-weight:400;color:var(--warn)}
+li .m{font-size:12.5px;color:var(--muted);overflow-wrap:anywhere}
+li .code{font-family:var(--mono);font-size:11.5px;color:var(--muted)}
 li .del{border:0;background:none;color:var(--muted);font-size:18px;line-height:1;padding:2px 6px;border-radius:6px}
 li.new{border-color:var(--ok)}
-textarea{width:100%;font-family:var(--mono);font-size:13px;border:1px solid var(--line);border-radius:10px;padding:10px;background:var(--surface-2);color:var(--ink);min-height:96px;resize:vertical}
+textarea{width:100%;font-family:var(--mono);font-size:12px;border:1px solid var(--line);border-radius:10px;padding:10px;background:var(--surface-2);color:var(--ink);min-height:84px;resize:vertical;white-space:pre}
 details{border:1px solid var(--line);border-radius:10px;background:var(--surface-2);padding:10px 12px}
 summary{cursor:pointer;font-size:13.5px;color:var(--muted)}
 details p{font-size:13px;color:var(--muted);margin:8px 0 0}
@@ -61,7 +65,7 @@ details p{font-size:13px;color:var(--muted);margin:8px 0 0}
 <div class="wrap">
   <header>
     <h1>ISBNスキャナー</h1>
-    <p class="sub">連続で読み取って、最後にまとめてコピー。田畑文庫の「ISBNを入力」欄に貼り付けてください。</p>
+    <p class="sub">読み取るとタイトル・著者・出版社を自動で調べます。最後にまとめてコピーして、田畑文庫の貼り付け欄へ。</p>
   </header>
 
   <div id="stage"><video id="video" playsinline muted></video><div class="frame"></div><div class="hint">上段のバーコード（978 / 979）を枠に</div></div>
@@ -73,29 +77,38 @@ details p{font-size:13px;color:var(--muted);margin:8px 0 0}
   </div>
   <p class="msg" id="msg">「カメラを起動」を押すとカメラの使用許可を聞かれます。許可すると、バーコードを向けるだけで次々に追加されます。</p>
 
-  <div class="count"><b id="count">0</b><span>冊ぶんのISBN</span></div>
+  <div class="count"><b id="count">0</b><span>冊ぶんのISBN</span><span id="metaStat"></span></div>
   <ul id="list"></ul>
 
   <div class="row">
-    <button class="btn primary" id="copyBtn">すべてコピー</button>
+    <button class="btn primary" id="copyBtn">書誌ごとコピー</button>
+    <button class="btn" id="copyIsbnBtn">ISBNだけコピー</button>
     <button class="btn" id="shareBtn" hidden>共有</button>
     <button class="btn" id="clearBtn">全部消す</button>
   </div>
-  <textarea id="out" readonly aria-label="読み取ったISBN一覧"></textarea>
+  <textarea id="out" readonly aria-label="読み取った一覧"></textarea>
 
   <details>
     <summary>手で足す・使い方</summary>
     <p>下の欄にISBNを入力して「追加」を押すと一覧に加わります。ISBN-10（4-00-…）を入れても13桁に変換します。</p>
     <div class="row" style="margin-top:8px"><input id="manual" inputmode="numeric" placeholder="9784152098702" style="flex:2;border:1px solid var(--line);border-radius:10px;padding:10px;background:var(--surface);color:var(--ink);font-family:var(--mono)"><button class="btn" id="manualAdd">追加</button></div>
-    <p>一覧はこの端末のブラウザに保存されるので、途中で閉じても続きから足せます。コピーして田畑文庫に貼り付けたら「全部消す」で次の棚に進んでください。</p>
+    <p>書誌はopenBD（日本の書誌データベース）で調べ、見つからないときはGoogle Booksを試します。どちらにも無い本はISBNだけが残るので、田畑文庫で手入力してください。</p>
+    <p>一覧はこの端末に保存されます。コピーして田畑文庫に貼り付けたら「全部消す」で次の棚へ進んでください。</p>
   </details>
 </div>
 
 <script>
 const $ = s => document.querySelector(s);
-const KEY = "isbn-scanner.list";
+const KEY = "isbn-scanner.v2";
 let list = [];
-try{ list = JSON.parse(localStorage.getItem(KEY)||"[]").filter(x=>typeof x==="string") }catch{}
+try{
+  const raw = JSON.parse(localStorage.getItem(KEY)||"null");
+  if(Array.isArray(raw)) list = raw.filter(x=>x&&typeof x==="object"&&x.isbn);
+  else{
+    const old = JSON.parse(localStorage.getItem("isbn-scanner.list")||"[]");
+    if(Array.isArray(old)) list = old.filter(x=>typeof x==="string").map(isbn=>({isbn,status:"pending"}));
+  }
+}catch{}
 
 function c13(d){let s=0;for(let i=0;i<12;i++)s+=(+d[i])*(i%2?3:1);return String((10-s%10)%10)}
 function toIsbn13(raw){
@@ -106,27 +119,97 @@ function toIsbn13(raw){
   return null;
 }
 const fmt = i => `${i.slice(0,3)}-${i.slice(3,4)}-${i.slice(4,9)}-${i.slice(9,12)}-${i.slice(12)}`;
+const esc = s => String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 function save(){try{localStorage.setItem(KEY,JSON.stringify(list))}catch{}}
 function toast(t){const d=document.createElement("div");d.className="toast";d.textContent=t;document.body.appendChild(d);setTimeout(()=>d.remove(),2200)}
 function beep(ok){try{const a=window.__ac ||= new (window.AudioContext||window.webkitAudioContext)();const o=a.createOscillator(),g=a.createGain();o.frequency.value=ok?1320:320;g.gain.value=.05;o.connect(g);g.connect(a.destination);o.start();o.stop(a.currentTime+(ok?.08:.18))}catch{}}
+function setMsg(t,bad){const m=$("#msg");m.textContent=t;m.classList.toggle("bad",!!bad)}
+
+/* ---- 書誌の整形 ---- */
+function cleanAuthor(a){
+  if(!a) return "";
+  const role = /^(著|編|編著|共著|訳|監訳|監修|イラスト|イラストレーション|絵|画|原作|作画|漫画|脚本|写真|解説|企画|他|ほか)$/;
+  return String(a).replace(/[\/／]/g," ").split(/[\s　]+/)
+    .map(p=>p.trim()).filter(p=>p && !role.test(p))
+    .map(p=>p.replace(/[,，]?\s*\d{4}-?\d{0,4}\s*$/,"").split(/[,，]/).map(x=>x.trim()).filter(Boolean).join(""))
+    .filter(Boolean).slice(0,3).join("・");
+}
+// 「ダンジョン飯 4」「進撃の巨人（12）」などからシリーズ名と巻数を切り出す
+function splitVolume(title){
+  let t = String(title||"").replace(/\s+/g," ").trim();
+  t = t.replace(/\.\s*\[(\d+)\]/, " $1");                     // 「タイトル. [4]」→「タイトル 4」
+  t = t.replace(/[\s　]*[（(]\s*[^\d)）]{2,}\s*[)）]\s*$/, ""); // 末尾の副題「（黒羊の挽歌）」を外す
+  t = t.trim();
+  const m = t.match(/^(.+?)[\s　]*[（(【\[]?(\d{1,3})[)）】\]]?[\s　]*(?:巻)?$/);
+  if(m && m[1].trim().length>=2 && !/^\d+$/.test(m[1].trim())) return {series:m[1].trim().replace(/[\s　]*[（(【\[]$/,"").trim(), vol:Number(m[2])};
+  return {series:"", vol:""};
+}
+async function fetchJson(url, ms){
+  const ac = new AbortController(); const t = setTimeout(()=>ac.abort(), ms||8000);
+  try{ const r = await fetch(url,{signal:ac.signal}); if(!r.ok) return null; return await r.json() }
+  catch{ return null } finally{ clearTimeout(t) }
+}
+async function lookup(isbn){
+  const ob = await fetchJson(`https://api.openbd.jp/v1/get?isbn=${isbn}`);
+  const s = ob && ob[0] && ob[0].summary;
+  if(s && (s.title||"").trim()){
+    return {title:s.title.trim(), author:cleanAuthor(s.author), publisher:(s.publisher||"").trim(),
+            label:(s.series||"").trim(), pubdate:(s.pubdate||"").slice(0,4), genre:"", src:"openBD"};
+  }
+  const gb = await fetchJson(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}&country=JP`);
+  const v = gb && gb.items && gb.items[0] && gb.items[0].volumeInfo;
+  if(v && v.title){
+    return {title:[v.title, v.subtitle].filter(Boolean).join(" "), author:(v.authors||[]).slice(0,3).join("・"),
+            publisher:v.publisher||"", label:"", pubdate:(v.publishedDate||"").slice(0,4),
+            genre:(v.categories||[]).slice(0,2).join("/"), src:"Google Books"};
+  }
+  return null;
+}
+let pending = 0;
+async function enrich(item){
+  pending++; updateStat();
+  const meta = await lookup(item.isbn);
+  if(meta){
+    const sv = splitVolume(meta.title);
+    Object.assign(item, meta, {series:sv.series, vol:sv.vol, status:"ok"});
+  }else{
+    item.status = "none";
+  }
+  pending--; save(); render(); updateStat();
+}
+function updateStat(){
+  $("#metaStat").textContent = pending ? `（書誌を取得中 ${pending}件）` : "";
+}
+
+/* ---- 一覧 ---- */
 function render(newest){
   $("#count").textContent = list.length;
-  $("#list").innerHTML = list.map((c,i)=>`<li class="${c===newest?"new":""}"><span class="n">${i+1}</span><span class="code">${fmt(c)}</span><button class="del" data-i="${i}" aria-label="削除">×</button></li>`).join("");
+  $("#list").innerHTML = list.map((it,i)=>{
+    const t = it.status==="ok" ? `<span class="t">${esc(it.title)}</span>`
+      : it.status==="none" ? `<span class="t none">書誌が見つかりませんでした</span>`
+      : `<span class="t wait">調べています…</span>`;
+    const sub = [it.author, it.publisher, it.pubdate && it.pubdate+"年"].filter(Boolean).join(" ／ ");
+    return `<li class="${it.isbn===newest?"new":""}"><span class="n">${i+1}</span><span class="bd">${t}${sub?`<span class="m">${esc(sub)}</span>`:""}<span class="code">${esc(fmt(it.isbn))}</span></span><button class="del" data-i="${i}" aria-label="削除">×</button></li>`;
+  }).join("");
   $("#list").querySelectorAll(".del").forEach(b=>b.onclick=()=>{list.splice(+b.dataset.i,1);save();render()});
-  $("#out").value = list.join("\n");
+  $("#out").value = tsv();
+}
+function tsv(){
+  return list.map(it=>[it.isbn, it.title||"", it.author||"", it.publisher||"", it.series||"", it.vol||"", it.label||"", it.genre||""].join("\t")).join("\n");
 }
 function add(raw, quiet){
   const isbn = toIsbn13(raw);
   if(!isbn){ if(!quiet){ if(/^19[12]/.test(String(raw).replace(/\D/g,""))) setMsg("それは価格用の下段バーコードです。上段（978〜）を読み取ってください。",true); else setMsg("ISBNとして読み取れませんでした。",true) } return false }
-  if(list.includes(isbn)){ setMsg(`${fmt(isbn)} は読み取り済みです。`); beep(false); return false }
-  list.push(isbn); save(); render(isbn); beep(true);
+  if(list.some(x=>x.isbn===isbn)){ setMsg(`${fmt(isbn)} は読み取り済みです。`); beep(false); return false }
+  const item = {isbn, status:"pending"};
+  list.push(item); save(); render(isbn); beep(true);
   if(navigator.vibrate) try{navigator.vibrate(60)}catch{}
-  setMsg(`${fmt(isbn)} を追加しました。続けてどうぞ。`);
+  setMsg("追加しました。書誌を調べています…");
+  enrich(item);
   return true;
 }
-function setMsg(t,bad){const m=$("#msg");m.textContent=t;m.classList.toggle("bad",!!bad)}
 
-/* ---- scanning ---- */
+/* ---- 読み取り ---- */
 let stream=null, detector=null, timer=null, zxing=null;
 async function getDetector(){
   if("BarcodeDetector" in window){
@@ -148,9 +231,9 @@ async function startCam(){
     stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"},width:{ideal:1280},height:{ideal:960}}});
   }catch(e){
     const n=e?.name||"";
-    setMsg(n==="NotAllowedError" ? "カメラが拒否されました。ブラウザのアドレスバーの鍵マークから、このページのカメラを許可してください。"
+    setMsg(n==="NotAllowedError" ? "カメラが拒否されました。アドレスバーの鍵マークから、このページのカメラを許可してください。"
       : n==="NotFoundError" ? "カメラが見つかりませんでした。「写真から読み取る」をお使いください。"
-      : location.protocol==="file:" ? "ファイルとして開くとカメラを使えない場合があります。httpsのURLに置いて開くか、「写真から読み取る」をお使いください。"
+      : location.protocol==="file:" ? "ファイルとして開くとカメラを使えません。httpsのURLで開いてください。"
       : "カメラを起動できませんでした。「写真から読み取る」をお使いください。", true);
     return;
   }
@@ -205,23 +288,28 @@ $("#photoInp").onchange = async e=>{
 $("#manualAdd").onclick = ()=>{ if(add($("#manual").value)) $("#manual").value="" };
 $("#manual").addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();$("#manualAdd").click()}});
 
-$("#copyBtn").onclick = async ()=>{
+async function copyText(text, label){
   if(!list.length){ toast("まだ何も読み取っていません"); return }
-  const text = list.join("\n");
-  try{ await navigator.clipboard.writeText(text); toast(`${list.length}件をコピーしました`) }
+  try{ await navigator.clipboard.writeText(text); toast(`${list.length}件を${label}コピーしました`) }
   catch{
-    const ta=$("#out"); ta.focus(); ta.select(); ta.setSelectionRange(0,text.length);
-    try{ document.execCommand("copy"); toast(`${list.length}件をコピーしました`) }
+    const ta=$("#out"); ta.value=text; ta.focus(); ta.select(); ta.setSelectionRange(0,text.length);
+    try{ document.execCommand("copy"); toast(`${list.length}件を${label}コピーしました`) }
     catch{ toast("下の欄を長押しして選択・コピーしてください") }
   }
+}
+$("#copyBtn").onclick = ()=>{
+  if(pending){ toast("書誌の取得が終わるまで少し待ってください"); return }
+  copyText(tsv(), "書誌ごと");
 };
+$("#copyIsbnBtn").onclick = ()=> copyText(list.map(i=>i.isbn).join("\n"), "ISBNだけ");
 if(navigator.share){
   $("#shareBtn").hidden=false;
-  $("#shareBtn").onclick = ()=>{ if(!list.length){toast("まだ何も読み取っていません");return} navigator.share({title:"ISBN一覧",text:list.join("\n")}).catch(()=>{}) };
+  $("#shareBtn").onclick = ()=>{ if(!list.length){toast("まだ何も読み取っていません");return} navigator.share({title:"蔵書リスト",text:tsv()}).catch(()=>{}) };
 }
 $("#clearBtn").onclick = ()=>{ if(!list.length) return; if(confirm(`${list.length}件を消します。よろしいですか？`)){ list=[]; save(); render(); setMsg("消しました。") } };
 document.addEventListener("visibilitychange",()=>{ if(document.hidden) stopCam() });
 render();
+list.filter(it=>it.status==="pending").forEach(enrich);
 </script>
 </body>
 </html>
