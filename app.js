@@ -605,33 +605,99 @@ $("#bulkGo").onclick = async ()=>{
   if(ok) bulkDlg.close();
 };
 
-/* シリーズ名の変更・統合 */
+/* シリーズ名の変更・統合・構成する本の編集 */
+{
+  const st = document.createElement("style");
+  st.textContent = `
+#seriesDlg{width:min(640px,calc(100vw - 24px))}
+.smem{display:flex;flex-direction:column;gap:4px}
+.smem .r{display:grid;grid-template-columns:64px 1fr auto;gap:8px;align-items:center;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:var(--surface-2)}
+.smem .r.added{border-color:var(--read)}
+.smem .r input{width:100%;border:1px solid var(--line);border-radius:6px;padding:4px 6px;font-family:var(--mono);background:var(--surface);text-align:right}
+.smem .r .tt{font-size:13.5px;overflow-wrap:anywhere;min-width:0}
+.smem .r .tt small{display:block;color:var(--muted);font-size:11.5px}
+.sadd{display:flex;flex-direction:column;gap:4px}
+.sadd button.hit{display:flex;justify-content:space-between;gap:8px;text-align:left;border:1px dashed var(--line);background:none;border-radius:8px;padding:6px 10px;font-size:13px}
+.sadd button.hit:hover{border-color:var(--accent)}
+.sadd button.hit span:last-child{color:var(--accent);white-space:nowrap}`;
+  document.head.appendChild(st);
+}
 const seriesDlg = document.createElement("dialog");
 seriesDlg.id = "seriesDlg";
 seriesDlg.innerHTML = `<div class="dlg"><header><h2>シリーズを編集</h2><button type="button" class="x" data-close aria-label="閉じる">×</button></header>
   <div class="content">
-    <p class="note" id="seriesInfo"></p>
     <div class="f"><label for="seriesName">シリーズ名</label><input id="seriesName" list="dlSeries" autocomplete="off"></div>
     <p class="note">ほかのシリーズと同じ名前にすると、そのシリーズにまとまります。</p>
-    <label class="note" style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="seriesRevol"> タイトルから巻数を読み取って入れ直す</label>
+    <div class="sect" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">このシリーズの本 <span id="seriesCount" class="note"></span><span style="flex:1"></span><button type="button" class="mini" id="seriesAutoVol">タイトルから巻数を入れる</button></div>
+    <div class="smem" id="seriesMembers"></div>
+    <div class="sect">本を追加</div>
+    <div class="f"><input id="seriesSearch" type="search" placeholder="タイトル・著者で探す" autocomplete="off" aria-label="追加する本を探す"></div>
+    <div class="sadd" id="seriesHits"></div>
   </div>
   <footer><button type="button" class="btn danger" id="seriesUnset">シリーズを解除</button><span style="flex:1"></span><button type="button" class="btn" data-close>キャンセル</button><button type="button" class="btn primary" id="seriesSave">保存</button></footer></div>`;
 document.body.appendChild(seriesDlg);
 seriesDlg.querySelectorAll("[data-close]").forEach(b=>b.onclick=()=>seriesDlg.close());
-let seriesOld = null;
+let seriesOld = null, sMem = [];
 const idsOfSeries = name => S.items.filter(i=>String(i.series||"").trim()===name).map(i=>i.id);
+const volSort = (a,b)=>(a.vol===""||a.vol==null?1e9:+a.vol)-(b.vol===""||b.vol==null?1e9:+b.vol);
 function openSeriesEdit(name){
   seriesOld = name;
-  $("#seriesInfo").textContent = `「${name}」の${idsOfSeries(name).length}冊をまとめて変更します。`;
-  $("#seriesName").value = name; $("#seriesRevol").checked = false;
-  seriesDlg.showModal(); setTimeout(()=>$("#seriesName").select(), 30);
+  sMem = S.items.filter(i=>String(i.series||"").trim()===name).map(i=>({id:i.id, vol:i.vol??"", added:false})).sort(volSort);
+  $("#seriesName").value = name; $("#seriesSearch").value = "";
+  renderSeriesMembers(); renderSeriesHits();
+  seriesDlg.showModal();
 }
+function renderSeriesMembers(){
+  $("#seriesCount").textContent = `${sMem.length}冊`;
+  $("#seriesMembers").innerHTML = sMem.length ? sMem.map((m,i)=>{ const it = find(m.id)||{}; const note = [it.author, m.added ? (it.series ? `「${it.series}」から移動` : "追加") : ""].filter(Boolean).join(" ・ ");
+    return `<div class="r${m.added?" added":""}">
+    <input type="number" min="0" step="0.5" inputmode="decimal" value="${esc(m.vol)}" data-i="${i}" aria-label="巻数" placeholder="巻">
+    <span class="tt">${esc(it.title||fmtIsbn(it.isbn)||"書誌待ち")}${note?`<small>${esc(note)}</small>`:""}</span>
+    <button type="button" class="mini" data-rm="${i}">外す</button></div>` }).join("") : `<p class="note">本がありません。下の「本を追加」から入れてください。</p>`;
+  $("#seriesMembers").querySelectorAll("input[data-i]").forEach(inp=>inp.oninput=()=>{ sMem[+inp.dataset.i].vol = inp.value });
+  $("#seriesMembers").querySelectorAll("[data-rm]").forEach(b=>b.onclick=()=>{ sMem.splice(+b.dataset.rm,1); renderSeriesMembers(); renderSeriesHits() });
+}
+function renderSeriesHits(){
+  const q = nfkc($("#seriesSearch").value).trim().toLowerCase();
+  const inSet = new Set(sMem.map(m=>m.id));
+  let cands = S.items.filter(i=>!inSet.has(i.id));
+  if(q) cands = cands.filter(i=>nfkc([i.title,i.author,i.series,i.isbn].join(" ")).toLowerCase().includes(q));
+  else{
+    const key = seriesKey($("#seriesName").value||seriesOld), head = key.slice(0, Math.max(4, Math.min(key.length, 8)));
+    cands = key ? cands.filter(i=>seriesKey(splitVolume(i.title).series||i.title).startsWith(head)) : [];
+  }
+  cands = cands.slice(0,8);
+  $("#seriesHits").innerHTML = cands.length
+    ? (q ? "" : `<p class="note">タイトルが似ている本</p>`) + cands.map(i=>`<button type="button" class="hit" data-add="${esc(i.id)}"><span>${esc(i.title||fmtIsbn(i.isbn))}${i.series?` <small class="note">（${esc(i.series)}）</small>`:""}</span><span>＋追加</span></button>`).join("")
+    : (q ? `<p class="note">見つかりませんでした</p>` : "");
+  $("#seriesHits").querySelectorAll("[data-add]").forEach(b=>b.onclick=()=>{
+    const it = find(b.dataset.add); if(!it) return;
+    const v = splitVolume(it.title).vol;
+    sMem.push({id:it.id, vol: it.vol ?? (v ?? ""), added:true}); sMem.sort(volSort);
+    renderSeriesMembers(); renderSeriesHits();
+  });
+}
+let sT; $("#seriesSearch").addEventListener("input", ()=>{ clearTimeout(sT); sT = setTimeout(renderSeriesHits, 120) });
+$("#seriesAutoVol").onclick = ()=>{
+  let n = 0; sMem.forEach(m=>{ const v = splitVolume(find(m.id)?.title).vol; if(v!=null){ m.vol = v; n++ } });
+  sMem.sort(volSort); renderSeriesMembers();
+  toast(n ? `${n}冊の巻数を入れました` : "タイトルから巻数を読み取れませんでした");
+};
 $("#seriesSave").onclick = async ()=>{
-  const neu = cleanSeries($("#seriesName").value), revol = $("#seriesRevol").checked;
+  const neu = cleanSeries($("#seriesName").value);
   if(!neu){ toast("シリーズ名を入れてください（外すときは「シリーズを解除」）"); return }
-  const ids = idsOfSeries(seriesOld);
-  const merged = neu!==seriesOld && S.items.some(i=>String(i.series||"").trim()===neu);
-  if(await bulkApply(ids, it=>{ const ch={series:neu}; if(revol){ const v=splitVolume(it.title).vol; if(v!=null) ch.vol=v } return ch }, merged ? `${ids.length}冊を「${neu}」にまとめました` : `シリーズ名を「${neu}」に変更しました`)) seriesDlg.close();
+  const keep = new Map(sMem.map(m=>[m.id, m]));
+  const removed = idsOfSeries(seriesOld).filter(id=>!keep.has(id));
+  const ids = [...keep.keys(), ...removed];
+  if(!ids.length){ seriesDlg.close(); return }
+  const merged = neu!==seriesOld && S.items.some(i=>String(i.series||"").trim()===neu && !keep.has(i.id));
+  const ok = await bulkApply(ids, it=>{
+    const m = keep.get(it.id);
+    if(!m) return {series:""};
+    const v = String(m.vol).trim();
+    return {series:neu, vol: v==="" ? null : Number(v)};
+  }, merged ? `「${neu}」にまとめました` : `シリーズ「${neu}」を保存しました（${keep.size}冊${removed.length?`・${removed.length}冊を外しました`:""}）`);
+  if(ok) seriesDlg.close();
 };
 $("#seriesUnset").onclick = async ()=>{
   const ids = idsOfSeries(seriesOld);
