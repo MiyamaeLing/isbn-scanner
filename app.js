@@ -520,20 +520,58 @@ $("#addMember").onclick = async ()=>{
 $("#copyInvite").onclick = async ()=>{ try{ await navigator.clipboard.writeText(inviteUrl()); toast("招待リンクをコピーしました") }catch{ $("#inviteLink").select(); toast("リンクを選択しました。コピーしてください") } };
 
 /* ================= ログイン・台帳 ================= */
+const UA = navigator.userAgent || "";
+const inAppBrowser = /(Line\/|FBAN|FBAV|Instagram|Twitter|MicroMessenger|KAKAOTALK)/i.test(UA) || (/Android/i.test(UA) && /;\s*wv\)/i.test(UA));
+const isAndroid = /Android/i.test(UA);
+function gateNote(html, kind){
+  let el = $("#gateNote");
+  if(!el){ el = document.createElement("div"); el.id = "gateNote"; el.className = "banner"; $("#gate").insertBefore(el, $("#loginBtn")) }
+  el.style.borderColor = kind==="bad" ? "var(--lent)" : "var(--line)";
+  el.innerHTML = html;
+  el.hidden = false;
+  return el;
+}
+function inAppNotice(){
+  if(!inAppBrowser) return;
+  const url = location.origin + location.pathname;
+  gateNote(`<b>このアプリの中のブラウザでは、Googleのログインができません。</b><br>
+    ChromeやSafariなど、ふだん使っているブラウザでこのページを開き直してください。<br>
+    <span class="note">${isAndroid ? "右上のメニューから「ブラウザで開く」を選ぶか、下のボタンを押してください。" : "右下や右上のメニューから「Safariで開く」を選んでください。"}</span>
+    <div class="row" style="margin-top:10px">
+      ${isAndroid ? `<a class="btn" href="intent://${location.host}${location.pathname}#Intent;scheme=https;package=com.android.chrome;end">Chromeで開く</a>` : ""}
+      <button type="button" class="btn" id="copyUrlBtn">リンクをコピー</button>
+    </div>`);
+  $("#copyUrlBtn")?.addEventListener("click", async ()=>{
+    try{ await navigator.clipboard.writeText(url); toast("リンクをコピーしました。ブラウザに貼り付けて開いてください") }
+    catch{ toast(url) }
+  });
+  $("#loginBtn").textContent = "それでもここでログインしてみる";
+  $("#loginBtn").classList.remove("primary");
+}
 function showGate(msg){
   $("#gate").hidden=false; $("#appMain").hidden=true; $("#fab").hidden=true; $("#tabs").hidden=true; $("#menuWrap").hidden=true; $("#libName").hidden=true;
   if(msg) $("#gateMsg").textContent = msg;
+  inAppNotice();
 }
 function showApp(){ $("#gate").hidden=true; $("#appMain").hidden=false; $("#fab").hidden=false; $("#tabs").hidden=false; $("#menuWrap").hidden=false }
 $("#loginBtn").onclick = async ()=>{
-  const provider = new GoogleAuthProvider(); provider.setCustomParameters({prompt:"select_account"});
+  const btn = $("#loginBtn"); const provider = new GoogleAuthProvider(); provider.setCustomParameters({prompt:"select_account"});
+  btn.disabled = true;
+  const wait = setTimeout(()=>gateNote("ログイン画面が出ないときは、ChromeやSafariでこのページを開き直してください。LINEやメールアプリの中のブラウザでは、Googleのログインができません。","bad"), 8000);
   try{ await signInWithPopup(auth, provider) }
   catch(e){
-    if(/popup-blocked|operation-not-supported|popup-closed-by-user/.test(e?.code||"") && e.code!=="auth/popup-closed-by-user") { await signInWithRedirect(auth, provider) }
-    else if(e?.code!=="auth/popup-closed-by-user" && e?.code!=="auth/cancelled-popup-request") toast("ログインできませんでした: "+(e?.code||""));
+    const code = e?.code || "";
+    if(/popup-closed-by-user|cancelled-popup-request/.test(code)){ /* 本人が閉じただけ */ }
+    else if(/popup-blocked|operation-not-supported|web-storage-unsupported|internal-error/.test(code)){
+      gateNote("別の方法でログインを試しています…");
+      try{ await signInWithRedirect(auth, provider) }
+      catch(e2){ gateNote(`ログインできませんでした（${e2?.code||"不明なエラー"}）。ChromeやSafariでこのページを開き直してください。`,"bad") }
+    }
+    else gateNote(`ログインできませんでした（${code||"不明なエラー"}）。ChromeやSafariでこのページを開き直してください。`,"bad");
   }
+  finally{ clearTimeout(wait); btn.disabled = false }
 };
-getRedirectResult(auth).catch(()=>{});
+getRedirectResult(auth).catch(e=>{ if(e?.code) gateNote(`ログインできませんでした（${e.code}）。ChromeやSafariでこのページを開き直してください。`,"bad") });
 
 async function openLibrary(libId){
   if(unsubItems) unsubItems(); if(unsubLib) unsubLib();
