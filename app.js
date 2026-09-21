@@ -162,7 +162,7 @@ function render(){
   const v = $("#view");
   if(!S.loaded){ v.innerHTML=""; return; }
   v.innerHTML = S.tab==="series" ? renderSeries() : renderList(filtered());
-  bindView(); fillDatalists();
+  bindView(); fillDatalists(); updateBulk();
 }
 function itemRow(it){
   const k = KINDS[it.kind]||KINDS.book, st = STATUS[it.status||"unread"]||STATUS.unread;
@@ -179,9 +179,15 @@ function itemRow(it){
     it.needsInfo || !it.title ? `<span class="tag mono">${esc(fmtIsbn(it.isbn))}</span>` : ""
   ].join("");
   const next = it.status==="read" ? "未読に戻す" : it.status==="reading" ? "読了にする" : "読み始める";
+  const picked = S.select && S.sel.has(it.id);
+  const inner = `<span class="t">${title}${vol}</span>${who.length?`<span class="m">${esc(who.join(" ／ "))}</span>`:""}<span class="tags">${tags}</span>`;
+  if(S.select) return `<article class="item${picked?" picked":""}" style="--c:${k.color}">
+    <div class="spine"></div>
+    <button class="body row2" data-pick="${esc(it.id)}" aria-pressed="${picked}"><span class="pick" aria-hidden="true">${picked?"✓":""}</span><span class="col">${inner}</span></button>
+  </article>`;
   return `<article class="item" style="--c:${k.color}">
     <div class="spine"></div>
-    <button class="body" data-edit="${esc(it.id)}"><span class="t">${title}${vol}</span>${who.length?`<span class="m">${esc(who.join(" ／ "))}</span>`:""}<span class="tags">${tags}</span></button>
+    <button class="body" data-edit="${esc(it.id)}">${inner}</button>
     <div class="acts">
       <button class="mini" data-cycle="${esc(it.id)}">${next}</button>
       ${isLent(it) ? `<button class="mini" data-ret="${esc(it.id)}">返却</button>` : ""}
@@ -219,16 +225,20 @@ function renderSeries(){
     cells.push(`<span class="vc next" title="次に買う巻">${max+1}</span>`);
     const author = items.find(i=>i.author)?.author || items.find(i=>i.circle)?.circle || "";
     return `<section class="srow" style="--c:${c}">
-      <div class="h"><b>${esc(name)}</b><span class="m">${esc(author)}${author?" ・ ":""}${items.length}冊所持 ・ 読了 ${readN}/${items.length}</span>
+      <div class="h"><b>${esc(name)}</b><button class="mini" data-sedit="${esc(name)}">編集</button><span class="m">${esc(author)}${author?" ・ ":""}${items.length}冊所持 ・ 読了 ${readN}/${items.length}</span>
       ${missing.length?`<span class="gap">抜け: ${missing.length>12?missing.slice(0,12).join(", ")+" ほか":missing.join(", ")}巻</span>`:`<span class="m">1〜${max}巻 揃い</span>`}</div>
       <div class="vols">${cells.join("")}</div>
       ${extra.length?`<div class="tags">${extra.map(i=>`<button class="tag" data-edit="${esc(i.id)}" style="background:none;cursor:pointer">${esc(i.title||"巻数なし")}</button>`).join("")}</div>`:""}
     </section>`;
   });
-  return `<div class="legend"><span><i style="background:var(--manga);border-color:var(--manga)"></i>読了</span><span><i style="background:color-mix(in srgb,var(--manga) 22%,var(--surface))"></i>所持・未読</span><span><i style="box-shadow:inset 0 -3px 0 var(--lent)"></i>貸出中</span><span><i style="border-style:dashed"></i>次巻</span><span><i></i>未所持</span></div><div class="series">${rows.join("")}</div>`;
+  return seriesSuggest() + `<div class="legend"><span><i style="background:var(--manga);border-color:var(--manga)"></i>読了</span><span><i style="background:color-mix(in srgb,var(--manga) 22%,var(--surface))"></i>所持・未読</span><span><i style="box-shadow:inset 0 -3px 0 var(--lent)"></i>貸出中</span><span><i style="border-style:dashed"></i>次巻</span><span><i></i>未所持</span></div><div class="series">${rows.join("")}</div>`;
 }
 const find = id => S.items.find(i=>i.id===id);
 function bindView(){
+  $("#view").querySelectorAll("[data-pick]").forEach(b=>b.onclick=()=>{ const id=b.dataset.pick; if(S.sel.has(id)) S.sel.delete(id); else S.sel.add(id); render() });
+  $("#view").querySelectorAll("[data-sedit]").forEach(b=>b.onclick=()=>openSeriesEdit(b.dataset.sedit));
+  $("#view").querySelectorAll("[data-merge]").forEach(b=>b.onclick=()=>mergeSeries(b.dataset.merge, b.dataset.into));
+  $("#view").querySelectorAll("[data-ignore]").forEach(b=>b.onclick=()=>{ const ig=store.get("bunko.seriesIgnore",[]); ig.push(b.dataset.ignore); store.set("bunko.seriesIgnore",ig); render() });
   $("#view").querySelectorAll("[data-edit]").forEach(b=>b.onclick=()=>openEdit(b.dataset.edit));
   $("#view").querySelectorAll("[data-cycle]").forEach(b=>b.onclick=()=>{
     const it = find(b.dataset.cycle); if(!it) return;
@@ -464,6 +474,194 @@ async function refetchPending(){
     if(m){ ok++; await updateDoc(itemRef(it.id), clean({title:m.title, author:it.author||m.author, publisher:it.publisher||m.publisher, series:it.series||m.series, vol:it.vol??m.vol, tags:[...new Set([...(it.tags||[]), ...metaTags(m)])], needsInfo:false, updatedAt:Date.now()})).catch(()=>{}) }
   }
   toast(`${list.length}冊中 ${ok}冊の書誌が見つかりました`);
+}
+
+/* ================= まとめて操作・シリーズ整理 ================= */
+{
+  const st = document.createElement("style");
+  st.textContent = `
+.bulkbar{position:fixed;left:0;right:0;bottom:0;z-index:7;background:var(--surface);border-top:1px solid var(--line);box-shadow:0 -6px 20px rgba(0,0,0,.08);padding:10px 16px calc(10px + env(safe-area-inset-bottom,0px))}
+.bulkbar .in{max-width:880px;margin:0 auto;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.bulkbar .cnt{font-weight:700;font-family:var(--mono);margin-right:4px}
+.bulkbar .mini{padding:6px 10px;font-size:13px}
+.bulkbar .mini:disabled{opacity:.45;cursor:default}
+.item .body.row2{flex-direction:row;align-items:flex-start;gap:12px}
+.item .col{display:flex;flex-direction:column;gap:3px;min-width:0}
+.item .pick{flex:none;width:22px;height:22px;margin-top:2px;border:2px solid var(--line);border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700}
+.item.picked{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 6%,var(--surface))}
+.item.picked .pick{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.suggest{border:1px solid color-mix(in srgb,var(--unread) 45%,var(--line));background:color-mix(in srgb,var(--unread) 7%,var(--surface));border-radius:12px;padding:10px 14px;display:flex;flex-direction:column;gap:8px;margin-bottom:12px;font-size:13.5px}
+.suggest .pair{display:flex;gap:6px 8px;align-items:center;flex-wrap:wrap}
+.srow .h .mini{padding:2px 8px;font-size:11.5px}
+body.selecting{padding-bottom:calc(170px + env(safe-area-inset-bottom,0px))}`;
+  document.head.appendChild(st);
+}
+S.select = false; S.sel = new Set();
+const selBtn = document.createElement("button");
+selBtn.className = "chip"; selBtn.id = "selBtn"; selBtn.type = "button"; selBtn.textContent = "選択"; selBtn.setAttribute("aria-pressed","false");
+$("#controls").appendChild(selBtn);
+selBtn.onclick = ()=> setSelect(!S.select);
+function setSelect(on){
+  S.select = on; S.sel.clear(); resetBulkDel();
+  selBtn.setAttribute("aria-pressed", String(on)); selBtn.textContent = on ? "選択をやめる" : "選択";
+  document.body.classList.toggle("selecting", on);
+  if(on && S.tab==="series") setTab("list"); else render();
+}
+const bulkBar = document.createElement("div");
+bulkBar.className = "bulkbar"; bulkBar.id = "bulkBar"; bulkBar.hidden = true;
+bulkBar.innerHTML = `<div class="in">
+  <span class="cnt" id="bulkCnt">0冊</span>
+  <button class="mini" data-b="all">表示中をすべて選択</button>
+  <button class="mini" data-b="none">解除</button>
+  <span style="flex:1"></span>
+  <button class="mini" data-b="read">読了にする</button>
+  <button class="mini" data-b="reading">読書中</button>
+  <button class="mini" data-b="unread">積読に戻す</button>
+  <button class="mini" data-b="series">シリーズ…</button>
+  <button class="mini" data-b="loc">保管場所…</button>
+  <button class="mini" data-b="kind">種類…</button>
+  <button class="mini" data-b="del" id="bulkDel" style="color:var(--lent)">削除</button>
+</div>`;
+document.body.appendChild(bulkBar);
+function updateBulk(){
+  for(const id of [...S.sel]) if(!S.items.some(i=>i.id===id)) S.sel.delete(id);
+  bulkBar.hidden = !S.select;
+  if(S.user && !$("#appMain").hidden) $("#fab").hidden = S.select;
+  $("#bulkCnt").textContent = `${S.sel.size}冊`;
+  bulkBar.querySelectorAll("button[data-b]").forEach(b=>{ if(!["all","none"].includes(b.dataset.b)) b.disabled = !S.sel.size });
+}
+async function bulkApply(ids, fn, msg){
+  ids = [...ids]; if(!ids.length) return false;
+  try{
+    for(let i=0;i<ids.length;i+=400){
+      const batch = writeBatch(db);
+      for(const id of ids.slice(i,i+400)){
+        const it = find(id); if(!it) continue;
+        const ch = fn(it);
+        if(ch===null) batch.delete(itemRef(id)); else batch.update(itemRef(id), clean({...ch, updatedAt:Date.now()}));
+      }
+      await batch.commit();
+    }
+    toast(msg);
+    return true;
+  }catch(e){ toast(errMsg(e)); return false }
+}
+let bulkDelArm = false, bulkDelTimer = null;
+function resetBulkDel(){ bulkDelArm = false; clearTimeout(bulkDelTimer); const b=$("#bulkDel"); if(b){ b.textContent="削除"; b.style.background=""; b.style.color="var(--lent)" } }
+bulkBar.onclick = async e=>{
+  const b = e.target.closest("button[data-b]"); if(!b) return;
+  const act = b.dataset.b, n = S.sel.size;
+  if(act==="all"){ filtered().forEach(i=>S.sel.add(i.id)); render(); return }
+  if(act==="none"){ S.sel.clear(); render(); return }
+  if(!n) return;
+  if(act==="read") await bulkApply(S.sel, it=>({status:"read", readAt: it.readAt||today()}), `${n}冊を読了にしました`);
+  else if(act==="reading") await bulkApply(S.sel, ()=>({status:"reading"}), `${n}冊を読書中にしました`);
+  else if(act==="unread") await bulkApply(S.sel, ()=>({status:"unread", readAt:""}), `${n}冊を積読に戻しました`);
+  else if(act==="del"){
+    if(!bulkDelArm){ bulkDelArm = true; b.textContent = `${n}冊を削除（もう一度押す）`; b.style.background="var(--lent)"; b.style.color="var(--surface)"; bulkDelTimer = setTimeout(resetBulkDel, 6000); return }
+    resetBulkDel();
+    if(await bulkApply(S.sel, ()=>null, `${n}冊を削除しました`)){ S.sel.clear(); render() }
+  }
+  else openBulkDlg(act);
+};
+const bulkDlg = document.createElement("dialog");
+bulkDlg.id = "bulkDlg";
+bulkDlg.innerHTML = `<div class="dlg"><header><h2 id="bulkTitle"></h2><button type="button" class="x" data-close aria-label="閉じる">×</button></header>
+  <div class="content" id="bulkBody"></div>
+  <footer><button type="button" class="btn" data-close>キャンセル</button><button type="button" class="btn primary" id="bulkGo">変更する</button></footer></div>`;
+document.body.appendChild(bulkDlg);
+bulkDlg.querySelectorAll("[data-close]").forEach(b=>b.onclick=()=>bulkDlg.close());
+let bulkMode = null, bulkKind = "book";
+function openBulkDlg(mode){
+  bulkMode = mode; const n = S.sel.size; const body = $("#bulkBody");
+  if(mode==="series"){
+    $("#bulkTitle").textContent = `${n}冊のシリーズを設定`;
+    body.innerHTML = `<div class="f"><label for="bulkSeries">シリーズ名</label><input id="bulkSeries" list="dlSeries" autocomplete="off" placeholder="既存のシリーズ名を選ぶか、新しく入力"></div>
+      <label class="note" style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="bulkRevol" checked> タイトルから巻数を読み取って入れ直す</label>
+      <p class="note">空欄にすると、選んだ本をシリーズから外します。</p>`;
+    const common = [...new Set([...S.sel].map(id=>find(id)?.series||""))];
+    $("#bulkSeries").value = common.length===1 ? common[0] : "";
+  }else if(mode==="loc"){
+    $("#bulkTitle").textContent = `${n}冊の保管場所を設定`;
+    body.innerHTML = `<div class="f"><label for="bulkLoc">保管場所</label><input id="bulkLoc" list="dlLoc" autocomplete="off" placeholder="例: 本棚A-2"></div>`;
+  }else if(mode==="kind"){
+    $("#bulkTitle").textContent = `${n}冊の種類を変更`;
+    body.innerHTML = `<div class="f"><label>種類</label><div class="seg" id="bulkKindSeg"></div></div>`;
+    bulkKind = "book"; segButtons($("#bulkKindSeg"), Object.entries(KINDS), bulkKind, k=>bulkKind=k);
+  }
+  bulkDlg.showModal();
+}
+$("#bulkGo").onclick = async ()=>{
+  const n = S.sel.size; let ok = false;
+  if(bulkMode==="series"){
+    const name = cleanSeries($("#bulkSeries").value), revol = $("#bulkRevol").checked;
+    ok = await bulkApply(S.sel, it=>{ const ch = {series:name}; if(name && revol){ const v = splitVolume(it.title).vol; if(v!=null) ch.vol = v } return ch }, name ? `${n}冊を「${name}」にしました` : `${n}冊をシリーズから外しました`);
+  }else if(bulkMode==="loc"){
+    const loc = $("#bulkLoc").value.trim();
+    ok = await bulkApply(S.sel, ()=>({location:loc}), `${n}冊の保管場所を「${loc||"未設定"}」にしました`);
+  }else if(bulkMode==="kind"){
+    ok = await bulkApply(S.sel, ()=>({kind:bulkKind}), `${n}冊を「${KINDS[bulkKind].label}」にしました`);
+  }
+  if(ok) bulkDlg.close();
+};
+
+/* シリーズ名の変更・統合 */
+const seriesDlg = document.createElement("dialog");
+seriesDlg.id = "seriesDlg";
+seriesDlg.innerHTML = `<div class="dlg"><header><h2>シリーズを編集</h2><button type="button" class="x" data-close aria-label="閉じる">×</button></header>
+  <div class="content">
+    <p class="note" id="seriesInfo"></p>
+    <div class="f"><label for="seriesName">シリーズ名</label><input id="seriesName" list="dlSeries" autocomplete="off"></div>
+    <p class="note">ほかのシリーズと同じ名前にすると、そのシリーズにまとまります。</p>
+    <label class="note" style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="seriesRevol"> タイトルから巻数を読み取って入れ直す</label>
+  </div>
+  <footer><button type="button" class="btn danger" id="seriesUnset">シリーズを解除</button><span style="flex:1"></span><button type="button" class="btn" data-close>キャンセル</button><button type="button" class="btn primary" id="seriesSave">保存</button></footer></div>`;
+document.body.appendChild(seriesDlg);
+seriesDlg.querySelectorAll("[data-close]").forEach(b=>b.onclick=()=>seriesDlg.close());
+let seriesOld = null;
+const idsOfSeries = name => S.items.filter(i=>String(i.series||"").trim()===name).map(i=>i.id);
+function openSeriesEdit(name){
+  seriesOld = name;
+  $("#seriesInfo").textContent = `「${name}」の${idsOfSeries(name).length}冊をまとめて変更します。`;
+  $("#seriesName").value = name; $("#seriesRevol").checked = false;
+  seriesDlg.showModal(); setTimeout(()=>$("#seriesName").select(), 30);
+}
+$("#seriesSave").onclick = async ()=>{
+  const neu = cleanSeries($("#seriesName").value), revol = $("#seriesRevol").checked;
+  if(!neu){ toast("シリーズ名を入れてください（外すときは「シリーズを解除」）"); return }
+  const ids = idsOfSeries(seriesOld);
+  const merged = neu!==seriesOld && S.items.some(i=>String(i.series||"").trim()===neu);
+  if(await bulkApply(ids, it=>{ const ch={series:neu}; if(revol){ const v=splitVolume(it.title).vol; if(v!=null) ch.vol=v } return ch }, merged ? `${ids.length}冊を「${neu}」にまとめました` : `シリーズ名を「${neu}」に変更しました`)) seriesDlg.close();
+};
+$("#seriesUnset").onclick = async ()=>{
+  const ids = idsOfSeries(seriesOld);
+  if(await bulkApply(ids, ()=>({series:""}), `${ids.length}冊をシリーズから外しました`)) seriesDlg.close();
+};
+async function mergeSeries(from, into){
+  const ids = idsOfSeries(from);
+  await bulkApply(ids, ()=>({series:into}), `「${from}」の${ids.length}冊を「${into}」にまとめました`);
+}
+function seriesKey(n){ return nfkc(String(n||"")).toLowerCase().replace(/\s*(?:vol|volume)\.?\s*$/,"").replace(/[\s・･:：=＝\-‐－―—~〜.,、。!！?？()（）「」『』\[\]【】'"’”]/g,"") }
+function seriesSuggest(){
+  const count = new Map();
+  for(const it of S.items){ const n = String(it.series||"").trim(); if(n) count.set(n, (count.get(n)||0)+1) }
+  const names = [...count.keys()];
+  const ignore = new Set(store.get("bunko.seriesIgnore",[]));
+  const pairs = [];
+  for(let i=0;i<names.length;i++) for(let j=i+1;j<names.length;j++){
+    const a = names[i], b = names[j], ka = seriesKey(a), kb = seriesKey(b);
+    if(!ka || !kb) continue;
+    const short = ka.length<=kb.length ? ka : kb, long = short===ka ? kb : ka;
+    if(ka===kb || (short.length>=4 && long.startsWith(short))){
+      const pk = [a,b].sort().join(" || ");
+      if(ignore.has(pk)) continue;
+      const [into, from] = (count.get(a)||0) >= (count.get(b)||0) ? [a,b] : [b,a];
+      pairs.push({into, from, pk});
+    }
+  }
+  if(!pairs.length) return "";
+  return `<div class="suggest"><b>同じシリーズかもしれません</b>${pairs.slice(0,8).map(p=>`<div class="pair">「${esc(p.from)}」（${count.get(p.from)}冊）→「${esc(p.into)}」（${count.get(p.into)}冊）
+    <button class="mini" data-merge="${esc(p.from)}" data-into="${esc(p.into)}">まとめる</button><button class="mini" data-ignore="${esc(p.pk)}">別のシリーズ</button></div>`).join("")}</div>`;
 }
 
 /* ================= メニュー・共有・入出力 ================= */
