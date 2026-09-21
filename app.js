@@ -616,7 +616,8 @@ $("#bulkGo").onclick = async ()=>{
 .smem .r input{width:100%;border:1px solid var(--line);border-radius:6px;padding:4px 6px;font-family:var(--mono);background:var(--surface);text-align:right}
 .smem .r .tt{font-size:13.5px;overflow-wrap:anywhere;min-width:0}
 .smem .r .tt small{display:block;color:var(--muted);font-size:11.5px}
-.sadd{display:flex;flex-direction:column;gap:4px}
+.sadd{display:flex;flex-direction:column;gap:4px;margin-top:-8px}
+.sadd p.note{margin:0 0 2px}
 .sadd button.hit{display:flex;justify-content:space-between;gap:8px;text-align:left;border:1px dashed var(--line);background:none;border-radius:8px;padding:6px 10px;font-size:13px}
 .sadd button.hit:hover{border-color:var(--accent)}
 .sadd button.hit span:last-child{color:var(--accent);white-space:nowrap}`;
@@ -668,7 +669,7 @@ function renderSeriesHits(){
   }
   cands = cands.slice(0,8);
   $("#seriesHits").innerHTML = cands.length
-    ? (q ? "" : `<p class="note">タイトルが似ている本</p>`) + cands.map(i=>`<button type="button" class="hit" data-add="${esc(i.id)}"><span>${esc(i.title||fmtIsbn(i.isbn))}${i.series?` <small class="note">（${esc(i.series)}）</small>`:""}</span><span>＋追加</span></button>`).join("")
+    ? (q ? "" : `<p class="note">タイトルが似ている本</p>`) + cands.map(i=>`<button type="button" class="hit" data-add="${esc(i.id)}"><span>${esc(i.title||fmtIsbn(i.isbn))}${i.series?`<small class="note" style="display:block">今のシリーズ：${esc(i.series)}</small>`:""}</span><span>＋追加</span></button>`).join("")
     : (q ? `<p class="note">見つかりませんでした</p>` : "");
   $("#seriesHits").querySelectorAll("[data-add]").forEach(b=>b.onclick=()=>{
     const it = find(b.dataset.add); if(!it) return;
