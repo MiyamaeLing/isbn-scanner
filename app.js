@@ -17,7 +17,8 @@ try { db = initializeFirestore(fbApp, { localCache: persistentLocalCache({ tabMa
 catch { db = initializeFirestore(fbApp, {}); }
 
 /* ================= 基本 ================= */
-const KINDS = {book:{label:"本",color:"var(--book)"},manga:{label:"漫画",color:"var(--manga)"},doujin:{label:"同人誌",color:"var(--doujin)"}};
+const KINDS = {book:{label:"本",color:"var(--book)"},manga:{label:"漫画",color:"var(--manga)"},doujin:{label:"同人誌",color:"var(--doujin)"},magazine:{label:"雑誌",color:"var(--magazine)",fields:"book"},artbook:{label:"画集",color:"var(--artbook)",fields:"book"}};
+{ const st=document.createElement("style"); st.textContent=":root{--magazine:#137C85;--artbook:#8A7416}@media (prefers-color-scheme:dark){:root:not([data-theme=\"light\"]){--magazine:#6CC9CF;--artbook:#D6C25E}}"; document.head.appendChild(st) }
 const STATUS = {unread:{label:"積読",color:"var(--unread)"},reading:{label:"読書中",color:"var(--reading)"},read:{label:"読了",color:"var(--read)"}};
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -83,6 +84,7 @@ async function lookup(isbn){
 function guessKind(meta, pref){
   if(pref && pref!=="auto") return pref;
   const hay = [meta?.label, meta?.genre, meta?.publisher, meta?.title].join(" ");
+  if(/画集|アートブック|イラスト集|原画集|設定資料集|ART ?WORKS|ARTBOOK|ART BOOK/i.test(hay)) return "artbook";
   if(/コミック|COMIC|Comics|comics|まんが|漫画|少年|少女|ヤング|ジャンプ|マガジン|サンデー|アフタヌーン|チャンピオン|ビッグ|モーニング|ガンガン/.test(hay)) return "manga";
   return "book";
 }
@@ -141,7 +143,7 @@ function render(){
   $("#nList").textContent = all.length; $("#nSeries").textContent = seriesCount; $("#nLent").textContent = lent;
   const byKind = k => all.filter(i=>i.kind===k).length;
   $("#ledger").innerHTML = `
-    <button data-f="" aria-pressed="${!S.filt}"><span class="k">所蔵</span><span class="v">${all.length}<small>冊</small></span><span class="k">本 ${byKind("book")}・漫画 ${byKind("manga")}・同人 ${byKind("doujin")}</span></button>
+    <button data-f="" aria-pressed="${!S.filt}"><span class="k">所蔵</span><span class="v">${all.length}<small>冊</small></span><span class="k">${Object.entries(KINDS).filter(([k])=>["book","manga","doujin"].includes(k)||byKind(k)).map(([k,v])=>`${k==="doujin"?"同人":v.label} ${byKind(k)}`).join("・")}</span></button>
     <button data-f="unread" aria-pressed="${S.filt==="unread"}"><span class="k">積読</span><span class="v" style="color:var(--unread)">${unread}<small>冊</small></span><span class="k">${all.length?Math.round(unread/all.length*100):0}%</span></button>
     <button data-f="lent" aria-pressed="${S.filt==="lent"}"><span class="k">貸出中</span><span class="v" style="color:var(--lent)">${lent}<small>冊</small></span><span class="k">${lent?"返却待ち":"なし"}</span></button>
     <button data-f="pending" aria-pressed="${S.filt==="pending"}"><span class="k">書誌待ち</span><span class="v" style="color:var(--pending)">${pending}<small>冊</small></span><span class="k">ISBNのみ登録</span></button>`;
@@ -267,7 +269,7 @@ function segButtons(el, entries, cur, onPick){
   el.querySelectorAll("button").forEach(b=>b.onclick=()=>{el.querySelectorAll("button").forEach(x=>x.setAttribute("aria-pressed",String(x===b)));onPick(b.dataset.v)});
 }
 function applyKind(){
-  editDlg.querySelectorAll("[data-for]").forEach(f=>f.hidden=!f.dataset.for.split(" ").includes(editKind));
+  editDlg.querySelectorAll("[data-for]").forEach(f=>f.hidden=!f.dataset.for.split(" ").includes(KINDS[editKind]?.fields||editKind));
   $("#lAuthor").textContent = editKind==="doujin" ? "作家・ペンネーム" : "著者";
 }
 function openEdit(id){
@@ -454,7 +456,7 @@ $("#manualAdd").onclick = async ()=>{
 };
 $("#scanBtn").onclick = ()=>{
   scanKind = store.get("bunko.scanKind","auto");
-  segButtons($("#scanKindSeg"), [["auto",{label:"自動判定"}],...Object.entries(KINDS).filter(([k])=>k!=="doujin")], scanKind, k=>{scanKind=k;store.set("bunko.scanKind",k)});
+  segButtons($("#scanKindSeg"), [["auto",{label:"自動判定"}],...Object.entries(KINDS).filter(([k])=>k!=="doujin"&&k!=="magazine")], scanKind, k=>{scanKind=k;store.set("bunko.scanKind",k)});
   segButtons($("#scanStatusSeg"), Object.entries(STATUS), scanStatus, s=>scanStatus=s);
   $("#scanLoc").value = store.get("bunko.lastLoc","");
   $("#scanLog").innerHTML = ""; recent.clear();
