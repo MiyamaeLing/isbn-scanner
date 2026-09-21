@@ -189,7 +189,7 @@ function itemRow(it){
     <div class="spine"></div>
     <button class="body" data-edit="${esc(it.id)}">${inner}</button>
     <div class="acts">
-      <button class="mini" data-cycle="${esc(it.id)}">${next}</button>
+      ${it.status==="read" ? "" : `<button class="mini" data-cycle="${esc(it.id)}">${next}</button>`}
       ${isLent(it) ? `<button class="mini" data-ret="${esc(it.id)}">返却</button>` : ""}
     </div>
   </article>`;
